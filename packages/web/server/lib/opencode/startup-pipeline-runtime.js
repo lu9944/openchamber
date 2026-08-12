@@ -58,6 +58,7 @@ export const createStartupPipelineRuntime = (dependencies) => {
       attachSignals,
       apiOnly,
       dictationModelsDir,
+      allowSpeechModelDownloads,
     } = options;
 
     const terminalRuntime = createTerminalRuntime({
@@ -85,6 +86,7 @@ export const createStartupPipelineRuntime = (dependencies) => {
       isRequestOriginAllowed,
       rejectWebSocketUpgrade,
       modelsDir: dictationModelsDir,
+      allowModelDownloads: allowSpeechModelDownloads,
     });
 
     const messageStreamRuntime = createMessageStreamWsRuntime({

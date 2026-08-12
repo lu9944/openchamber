@@ -46,8 +46,9 @@ export function createDictationRuntime({
   isRequestOriginAllowed,
   rejectWebSocketUpgrade,
   modelsDir,
+  allowModelDownloads = false,
 }) {
-  const service = createDictationService({ modelsDir });
+  const service = createDictationService({ modelsDir, allowModelDownloads });
 
   // Local text-to-speech (Kokoro in the dictation worker). Returns WAV bytes;
   // 503 with a reason code while the model is still downloading.
@@ -94,7 +95,7 @@ export function createDictationRuntime({
     try {
       const result = await service.requestModelDownload(req.params.modelId);
       if (!result.ok) {
-        res.status(400).json({ error: result.error });
+        res.status(result.forbidden ? 403 : 400).json({ error: result.error });
         return;
       }
       res.json(result);

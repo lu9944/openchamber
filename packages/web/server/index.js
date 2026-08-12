@@ -1758,6 +1758,7 @@ async function main(options = {}) {
     attachSignals,
     apiOnly,
     dictationModelsDir: path.join(OPENCHAMBER_USER_CONFIG_ROOT, 'speech-models'),
+    allowSpeechModelDownloads: isEnvFlagEnabled(process.env.OPENCHAMBER_ALLOW_SPEECH_MODEL_DOWNLOADS),
   });
   terminalRuntime = startupPipelineResult.terminalRuntime;
   dictationRuntime = startupPipelineResult.dictationRuntime;

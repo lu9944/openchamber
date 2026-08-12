@@ -26,9 +26,9 @@ same status/download/delete routes.
   partial-transcript concatenation, adaptive finalization timeout.
 - `service.js` — provider resolution and readiness. Providers:
   - `local` (default): sherpa-onnx Parakeet TDT in a forked worker process.
-    Models auto-download in the background on first use; while missing, the
-    stream fails with `reasonCode: 'model_download_in_progress'` and the
-    status route reports per-model install/download state.
+    Models download only when `OPENCHAMBER_ALLOW_SPEECH_MODEL_DOWNLOADS=true`;
+    downloads are disabled by default. Missing models otherwise fail with
+    `reasonCode: 'model_download_disabled'` without network access.
   - `openai-compatible`: buffered per-segment transcription against any
     OpenAI-compatible `/v1/audio/transcriptions` endpoint
     (`openai-compatible-session.js`, reuses `../tts/stt.js`).
@@ -61,3 +61,5 @@ openaiCompatible?: { baseUrl, model, apiKey } }`.
 - Silence-only segments (peak < 300) are cleared, never committed, so
   Whisper-style providers do not hallucinate on silence.
 - Model files live under `~/.config/openchamber/speech-models`.
+- The explicit model download route returns HTTP 403 unless
+  `OPENCHAMBER_ALLOW_SPEECH_MODEL_DOWNLOADS=true` was set at server startup.

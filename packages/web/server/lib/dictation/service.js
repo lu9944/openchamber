@@ -27,7 +27,7 @@ import {
 } from './local/model-catalog.js';
 import { ensureLocalSttModel, isLocalSttModelInstalled } from './local/model-downloader.js';
 
-export function createDictationService({ modelsDir }) {
+export function createDictationService({ modelsDir, allowModelDownloads = false }) {
   const workerClient = new DictationWorkerClient();
   /** modelId -> 'downloading' | 'error' */
   const downloadStates = new Map();
@@ -39,6 +39,7 @@ export function createDictationService({ modelsDir }) {
   const downloadProgress = new Map();
 
   const startModelDownload = (modelId) => {
+    if (!allowModelDownloads) return null;
     const existing = downloadPromises.get(modelId);
     if (existing) {
       return existing;
@@ -109,6 +110,9 @@ export function createDictationService({ modelsDir }) {
     const modelId = resolveLocalModelId(options.localModel);
     const installed = await isLocalSttModelInstalled(modelsDir, modelId);
     if (!installed) {
+      if (!allowModelDownloads) {
+        return { error: 'Speech model downloads are disabled by server configuration', retryable: false, reasonCode: 'model_download_disabled' };
+      }
       const state = downloadStates.get(modelId);
       if (state === 'error') {
         const message = downloadErrors.get(modelId) || 'Model download failed';
@@ -226,6 +230,9 @@ export function createDictationService({ modelsDir }) {
     const modelId = isLocalTtsModelId(model) ? model : DEFAULT_LOCAL_TTS_MODEL;
     const installed = await isLocalSttModelInstalled(modelsDir, modelId);
     if (!installed) {
+      if (!allowModelDownloads) {
+        return { error: 'Speech model downloads are disabled by server configuration', retryable: false, reasonCode: 'model_download_disabled' };
+      }
       const state = downloadStates.get(modelId);
       if (state === 'error') {
         const message = downloadErrors.get(modelId) || 'Model download failed';
@@ -264,6 +271,9 @@ export function createDictationService({ modelsDir }) {
     }
     if (await isLocalSttModelInstalled(modelsDir, modelId)) {
       return { ok: true, installed: true };
+    }
+    if (!allowModelDownloads) {
+      return { ok: false, forbidden: true, error: 'Speech model downloads are disabled by server configuration' };
     }
     void startModelDownload(modelId);
     return { ok: true, installed: false };

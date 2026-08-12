@@ -9,6 +9,8 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      OPENCHAMBER_ALLOW_SPEECH_MODEL_DOWNLOADS: 'false'
     steps:
       - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -25,6 +27,9 @@ jobs:
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
+
+      - name: Verify speech model downloads stay disabled
+        run: bun run --cwd packages/web test -- server/lib/dictation/service.test.js
 
       - name: Build web package
         run: bun run build:web
@@ -54,6 +59,9 @@ jobs:
           cat > artifacts/README.txt <<EOF
           OpenChamber offline npm package for Linux x64 and Node.js 22+
 
+          Speech model downloads are disabled by default and no speech models
+          are included in this artifact.
+
           Install from this extracted directory without network access:
 
             npm install --global --offline --cache ./npm-cache ./package/$package_name
@@ -68,4 +76,3 @@ jobs:
           path: artifacts
           if-no-files-found: error
           retention-days: 30
-
