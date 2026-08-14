@@ -31,6 +31,12 @@ jobs:
       - name: Verify speech model downloads stay disabled
         run: bun run --cwd packages/web test -- server/lib/dictation/service.test.js
 
+      - name: Type-check web package
+        run: bun run type-check:web
+
+      - name: Lint web package
+        run: bun run lint:web
+
       - name: Build web package
         run: bun run build:web
 
@@ -42,19 +48,52 @@ jobs:
           mkdir -p artifacts/npm-cache artifacts/package
           package_name=$(npm pack --workspace packages/web --pack-destination artifacts/package | tail -n 1)
           package_path="artifacts/package/$package_name"
+          registry_url="https://registry.npmjs.org/"
+          isolated_npmrc="$RUNNER_TEMP/openchamber-empty-npmrc"
+          : > "$isolated_npmrc"
 
           npm install \
             --global \
             --prefix "$RUNNER_TEMP/openchamber-cache-warmup" \
             --cache artifacts/npm-cache \
+            --registry "$registry_url" \
+            --userconfig "$isolated_npmrc" \
             "$package_path"
 
-          npm install \
-            --global \
-            --prefix "$RUNNER_TEMP/openchamber-offline-test" \
-            --cache artifacts/npm-cache \
-            --offline \
-            "$package_path"
+          cat > artifacts/install.sh <<'INSTALL_SCRIPT'
+          #!/usr/bin/env bash
+          set -euo pipefail
+
+          artifact_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+          package_path=$(find "$artifact_dir/package" -maxdepth 1 -name 'openchamber-web-*.tgz' -print -quit)
+          if [ -z "$package_path" ]; then
+            echo "OpenChamber npm package was not found under $artifact_dir/package" >&2
+            exit 1
+          fi
+
+          npm_args=(
+            install
+            --global
+            --offline
+            --registry=https://registry.npmjs.org/
+            --userconfig="$artifact_dir/npmrc"
+            --cache="$artifact_dir/npm-cache"
+          )
+          if [ -n "${OPENCHAMBER_INSTALL_PREFIX:-}" ]; then
+            npm_args+=(--prefix="$OPENCHAMBER_INSTALL_PREFIX")
+          fi
+
+          npm "${npm_args[@]}" "$package_path"
+          INSTALL_SCRIPT
+          chmod +x artifacts/install.sh
+          printf 'registry=https://registry.npmjs.org/\n' > artifacts/npmrc
+
+          hostile_home="$RUNNER_TEMP/openchamber-hostile-home"
+          offline_prefix="$RUNNER_TEMP/openchamber-offline-test"
+          mkdir -p "$hostile_home"
+          printf 'registry=https://mirrors.cloud.tencent.com/npm/\n' > "$hostile_home/.npmrc"
+          HOME="$hostile_home" OPENCHAMBER_INSTALL_PREFIX="$offline_prefix" bash artifacts/install.sh
+          "$offline_prefix/bin/openchamber" --help >/dev/null
 
           cat > artifacts/README.txt <<EOF
           OpenChamber offline npm package for Linux x64 and Node.js 22+
@@ -64,9 +103,11 @@ jobs:
 
           Install from this extracted directory without network access:
 
-            npm install --global --offline --cache ./npm-cache ./package/$package_name
+            bash ./install.sh
 
-          The npm cache and package tarball must remain together until installation finishes.
+          install.sh ignores the user's npm registry configuration so the cache
+          remains usable with npm mirrors configured. The npm cache and package
+          tarball must remain together until installation finishes.
           EOF
 
       - name: Upload offline installer
