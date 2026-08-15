@@ -6,11 +6,19 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: offline-npm-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     env:
       OPENCHAMBER_ALLOW_SPEECH_MODEL_DOWNLOADS: 'false'
+      NPM_CONFIG_AUDIT: 'false'
+      NPM_CONFIG_FUND: 'false'
+      NPM_CONFIG_UPDATE_NOTIFIER: 'false'
     steps:
       - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -40,6 +48,14 @@ jobs:
       - name: Build web package
         run: bun run build:web
 
+      - name: Read package metadata
+        id: package
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(node -p "require('./packages/web/package.json').version")
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+
       - name: Create npm package and offline cache
         shell: bash
         run: |
@@ -48,6 +64,12 @@ jobs:
           mkdir -p artifacts/npm-cache artifacts/package
           package_name=$(npm pack --workspace packages/web --pack-destination artifacts/package | tail -n 1)
           package_path="artifacts/package/$package_name"
+          expected_name="openchamber-web-${{ steps.package.outputs.version }}.tgz"
+          if [ "$package_name" != "$expected_name" ]; then
+            echo "Expected $expected_name, npm pack produced $package_name" >&2
+            exit 1
+          fi
+
           registry_url="https://registry.npmjs.org/"
           isolated_npmrc="$RUNNER_TEMP/openchamber-empty-npmrc"
           : > "$isolated_npmrc"
@@ -60,14 +82,34 @@ jobs:
             --userconfig "$isolated_npmrc" \
             "$package_path"
 
+          npm cache verify --cache artifacts/npm-cache
+
           cat > artifacts/install.sh <<'INSTALL_SCRIPT'
           #!/usr/bin/env bash
           set -euo pipefail
 
           artifact_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+          if [ "$(uname -s)" != "Linux" ] || [ "$(uname -m)" != "x86_64" ]; then
+            echo "This installer supports Linux x86_64 only." >&2
+            exit 1
+          fi
+          if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
+            echo "Node.js 22+ with npm is required." >&2
+            exit 1
+          fi
+          node_major=$(node -p "Number(process.versions.node.split('.')[0])")
+          if [ "$node_major" -lt 22 ]; then
+            echo "Node.js 22+ is required; found $(node --version)." >&2
+            exit 1
+          fi
+
           package_path=$(find "$artifact_dir/package" -maxdepth 1 -name 'openchamber-web-*.tgz' -print -quit)
           if [ -z "$package_path" ]; then
             echo "OpenChamber npm package was not found under $artifact_dir/package" >&2
+            exit 1
+          fi
+          if ! (cd "$artifact_dir" && sha256sum --check SHA256SUMS); then
+            echo "Offline installer files failed integrity verification." >&2
             exit 1
           fi
 
@@ -87,16 +129,23 @@ jobs:
           INSTALL_SCRIPT
           chmod +x artifacts/install.sh
           printf 'registry=https://registry.npmjs.org/\n' > artifacts/npmrc
+          (
+            cd artifacts
+            sha256sum "package/$package_name" npmrc > SHA256SUMS
+          )
 
           hostile_home="$RUNNER_TEMP/openchamber-hostile-home"
           offline_prefix="$RUNNER_TEMP/openchamber-offline-test"
           mkdir -p "$hostile_home"
-          printf 'registry=https://mirrors.cloud.tencent.com/npm/\n' > "$hostile_home/.npmrc"
+          printf 'registry=https://offline.invalid/\n' > "$hostile_home/.npmrc"
           HOME="$hostile_home" OPENCHAMBER_INSTALL_PREFIX="$offline_prefix" bash artifacts/install.sh
+          npm ls --all --global --prefix "$offline_prefix"
           "$offline_prefix/bin/openchamber" --help >/dev/null
 
           cat > artifacts/README.txt <<EOF
-          OpenChamber offline npm package for Linux x64 and Node.js 22+
+          OpenChamber ${{ steps.package.outputs.version }} offline npm package
+          Source commit: $GITHUB_SHA
+          Target: Linux x86_64 with Node.js 22+ and npm
 
           Speech model downloads are disabled by default and no speech models
           are included in this artifact.
@@ -106,14 +155,15 @@ jobs:
             bash ./install.sh
 
           install.sh ignores the user's npm registry configuration so the cache
-          remains usable with npm mirrors configured. The npm cache and package
-          tarball must remain together until installation finishes.
+          remains usable with npm mirrors configured. It verifies the package
+          checksum before installing. Keep install.sh, SHA256SUMS, npmrc, the
+          npm-cache directory, and the package directory together.
           EOF
 
       - name: Upload offline installer
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: openchamber-npm-offline-linux-x64
+          name: openchamber-${{ steps.package.outputs.version }}-npm-offline-linux-x64
           path: artifacts
           if-no-files-found: error
           retention-days: 30
