@@ -36,8 +36,12 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Verify speech model downloads stay disabled
-        run: bun run --cwd packages/web test -- server/lib/dictation/service.test.js
+      - name: Run offline-sensitive server tests
+        run: |
+          bun run --cwd packages/web test -- \
+            server/lib/dictation/service.test.js \
+            server/lib/github/pr-status.test.js \
+            server/lib/opencode/settings-helpers.test.js
 
       - name: Type-check web package
         run: bun run type-check:web
@@ -54,7 +58,9 @@ jobs:
         run: |
           set -euo pipefail
           version=$(node -p "require('./packages/web/package.json').version")
+          revision=${GITHUB_SHA:0:12}
           printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+          printf 'revision=%s\n' "$revision" >> "$GITHUB_OUTPUT"
 
       - name: Create npm package and offline cache
         shell: bash
@@ -142,9 +148,46 @@ jobs:
           npm ls --all --global --prefix "$offline_prefix"
           "$offline_prefix/bin/openchamber" --help >/dev/null
 
+          smoke_port=39123
+          smoke_log="$RUNNER_TEMP/openchamber-offline-smoke.log"
+          HOME="$hostile_home" \
+            OPENCHAMBER_DATA_DIR="$RUNNER_TEMP/openchamber-offline-data" \
+            OPENCHAMBER_ALLOW_SPEECH_MODEL_DOWNLOADS=false \
+            OPENCODE_SKIP_START=true \
+            OPENCODE_HOST=http://127.0.0.1:9 \
+            "$offline_prefix/bin/openchamber" serve \
+              --foreground --host 127.0.0.1 --port "$smoke_port" --plain \
+              >"$smoke_log" 2>&1 &
+          smoke_pid=$!
+          cleanup_smoke() {
+            kill "$smoke_pid" 2>/dev/null || true
+            wait "$smoke_pid" 2>/dev/null || true
+          }
+          trap cleanup_smoke EXIT
+
+          smoke_ready=false
+          for _ in $(seq 1 30); do
+            if curl --fail --silent "http://127.0.0.1:$smoke_port/health" >/dev/null; then
+              smoke_ready=true
+              break
+            fi
+            if ! kill -0 "$smoke_pid" 2>/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          if [ "$smoke_ready" != true ]; then
+            cat "$smoke_log" >&2
+            exit 1
+          fi
+          curl --fail --silent "http://127.0.0.1:$smoke_port/" \
+            | grep --quiet '<!doctype html>'
+          cleanup_smoke
+          trap - EXIT
+
           cat > artifacts/README.txt <<EOF
           OpenChamber ${{ steps.package.outputs.version }} offline npm package
-          Source commit: $GITHUB_SHA
+          Source commit: $GITHUB_SHA (${{ steps.package.outputs.revision }})
           Target: Linux x86_64 with Node.js 22+ and npm
 
           Speech model downloads are disabled by default and no speech models
@@ -163,7 +206,7 @@ jobs:
       - name: Upload offline installer
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: openchamber-${{ steps.package.outputs.version }}-npm-offline-linux-x64
+          name: openchamber-${{ steps.package.outputs.version }}-${{ steps.package.outputs.revision }}-npm-offline-linux-x64
           path: artifacts
           if-no-files-found: error
           retention-days: 30
