@@ -150,9 +150,13 @@ jobs:
 
           smoke_port=39123
           smoke_log="$RUNNER_TEMP/openchamber-offline-smoke.log"
+          opencode_stub="$RUNNER_TEMP/opencode-offline-smoke"
+          printf '#!/usr/bin/env sh\nexit 0\n' > "$opencode_stub"
+          chmod +x "$opencode_stub"
           HOME="$hostile_home" \
             OPENCHAMBER_DATA_DIR="$RUNNER_TEMP/openchamber-offline-data" \
             OPENCHAMBER_ALLOW_SPEECH_MODEL_DOWNLOADS=false \
+            OPENCODE_BINARY="$opencode_stub" \
             OPENCODE_SKIP_START=true \
             OPENCODE_HOST=http://127.0.0.1:9 \
             "$offline_prefix/bin/openchamber" serve \
