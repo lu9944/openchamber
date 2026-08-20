@@ -11,6 +11,7 @@ const {
   detectPackageManager,
   executeUpdate,
   getCurrentVersion,
+  getUpdateCommand,
 } = await import('./package-manager.js');
 
 /** Helper: create a fetch mock that routes by URL pattern */
@@ -329,5 +330,9 @@ describe('CLI update exports', () => {
   it('exports package-manager helpers used by the update command', () => {
     expect(typeof detectPackageManager).toBe('function');
     expect(typeof executeUpdate).toBe('function');
+
+  });
+  it('uses cnpm when it owns the installation', () => {
+    expect(getUpdateCommand('cnpm')).toBe('cnpm install -g @openchamber/web@latest');
   });
 });

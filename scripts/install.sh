@@ -7,6 +7,7 @@ set -euo pipefail
 PACKAGE_NAME="@openchamber/web"
 BIN_NAME="openchamber"
 MIN_NODE_VERSION=22
+REQUESTED_PACKAGE_MANAGER="${OPENCHAMBER_PACKAGE_MANAGER:-}"
 
 # Colors
 RED='\033[0;31m'
@@ -36,6 +37,54 @@ command_exists() {
   command -v "$1" >/dev/null 2>&1
 }
 
+usage() {
+  cat <<'EOF'
+Usage: install.sh [--package-manager <npm|pnpm|cnpm|yarn|bun>]
+
+Options:
+  --package-manager <name>  Install with the selected package manager.
+  -h, --help                Show this help message.
+
+The OPENCHAMBER_PACKAGE_MANAGER environment variable provides the same
+non-interactive selection. Command-line options take precedence.
+EOF
+}
+
+parse_args() {
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --package-manager)
+        if [ "$#" -lt 2 ]; then
+          error "--package-manager requires a value"
+          exit 2
+        fi
+        REQUESTED_PACKAGE_MANAGER=$2
+        shift 2
+        ;;
+      --package-manager=*)
+        REQUESTED_PACKAGE_MANAGER=${1#*=}
+        shift
+        ;;
+      -h|--help)
+        usage
+        exit 0
+        ;;
+      *)
+        error "Unknown option: $1"
+        usage
+        exit 2
+        ;;
+    esac
+  done
+}
+
+is_supported_package_manager() {
+  case "$1" in
+    npm|pnpm|cnpm|yarn|bun) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 # Get Node.js major version
 get_node_version() {
   if command_exists node; then
@@ -55,10 +104,11 @@ get_node_version() {
 
 # Detect preferred package manager
 detect_package_manager() {
-  # Check if running inside an npm/pnpm/yarn/bun context
+  # Check if running inside an npm/pnpm/cnpm/yarn/bun context
   if [ -n "${npm_config_user_agent:-}" ]; then
     case "$npm_config_user_agent" in
       pnpm*) echo "pnpm"; return ;;
+      cnpm*) echo "cnpm"; return ;;
       yarn*) echo "yarn"; return ;;
       bun*) echo "bun"; return ;;
       npm*) echo "npm"; return ;;
@@ -83,6 +133,8 @@ detect_package_manager() {
     echo "bun"
   elif command_exists yarn; then
     echo "yarn"
+  elif command_exists cnpm; then
+    echo "cnpm"
   elif command_exists npm; then
     echo "npm"
   else
@@ -90,11 +142,76 @@ detect_package_manager() {
   fi
 }
 
+select_package_manager() {
+  local detected pm choice index default_index available count
+
+  if [ -n "$REQUESTED_PACKAGE_MANAGER" ]; then
+    if ! is_supported_package_manager "$REQUESTED_PACKAGE_MANAGER"; then
+      error "Unsupported package manager: $REQUESTED_PACKAGE_MANAGER" >&2
+      echo "Supported values: npm, pnpm, cnpm, yarn, bun" >&2
+      return 2
+    fi
+    if ! command_exists "$REQUESTED_PACKAGE_MANAGER"; then
+      error "$REQUESTED_PACKAGE_MANAGER is not installed or not on PATH" >&2
+      return 2
+    fi
+    echo "$REQUESTED_PACKAGE_MANAGER"
+    return
+  fi
+
+  detected=$(detect_package_manager)
+  available=""
+  count=0
+  for pm in npm pnpm cnpm yarn bun; do
+    if command_exists "$pm"; then
+      available="$available $pm"
+      count=$((count + 1))
+    fi
+  done
+
+  if [ "$count" -eq 0 ]; then
+    echo "none"
+    return
+  fi
+
+  if [ "$count" -eq 1 ] || [ ! -t 0 ]; then
+    echo "$detected"
+    return
+  fi
+
+  echo "" >&2
+  info "Choose a package manager:" >&2
+  default_index=1
+  index=1
+  for pm in $available; do
+    if [ "$pm" = "$detected" ]; then
+      default_index=$index
+    fi
+    echo "  $index) $pm" >&2
+    index=$((index + 1))
+  done
+
+  while true; do
+    printf "Select [%s]: " "$default_index" >&2
+    read -r choice
+    if [ -z "$choice" ]; then choice=$default_index; fi
+    if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "$count" ]; then
+      index=1
+      for pm in $available; do
+        if [ "$index" -eq "$choice" ]; then echo "$pm"; return; fi
+        index=$((index + 1))
+      done
+    fi
+    warn "Enter a number between 1 and $count." >&2
+  done
+}
+
 # Get install command for package manager
 get_install_command() {
   local pm=$1
   case "$pm" in
     pnpm) echo "pnpm add -g $PACKAGE_NAME" ;;
+    cnpm) echo "cnpm install -g $PACKAGE_NAME" ;;
     yarn) echo "yarn global add $PACKAGE_NAME" ;;
     bun) echo "bun add -g $PACKAGE_NAME" ;;
     npm) echo "npm install -g $PACKAGE_NAME" ;;
@@ -133,7 +250,7 @@ suggest_node_install() {
 # Install package manager suggestion
 suggest_pm_install() {
   echo ""
-  error "No package manager found (npm, pnpm, yarn, or bun)."
+  error "No package manager found (npm, pnpm, cnpm, yarn, or bun)."
   echo ""
   echo "Install a package manager:"
   echo ""
@@ -152,7 +269,22 @@ suggest_pm_install() {
   exit 1
 }
 
+save_package_manager_preference() {
+  if [ -z "${HOME:-}" ]; then
+    warn "Could not save the package manager preference because HOME is not set."
+    return
+  fi
+
+  local config_dir="$HOME/.config/openchamber"
+  if mkdir -p "$config_dir" && printf '%s\n' "$1" > "$config_dir/package-manager"; then
+    info "Saved $1 as the package manager for future OpenChamber updates."
+  else
+    warn "Could not save the package manager preference; future updates will auto-detect it."
+  fi
+}
+
 main() {
+  parse_args "$@"
   echo ""
   echo "  ╭───────────────────────────────────╮"
   echo "  │                                   │"
@@ -199,7 +331,7 @@ main() {
 
   # Detect package manager
   info "Detecting package manager..."
-  PM=$(detect_package_manager)
+  PM=$(select_package_manager)
   
   if [ "$PM" = "none" ]; then
     suggest_pm_install
@@ -221,6 +353,7 @@ main() {
   echo ""
   
   if eval "$INSTALL_CMD"; then
+    save_package_manager_preference "$PM"
     echo ""
     # Wordmark (toilet "pagga", "Open"/"Chamber" stacked).
     # Hardcoded so the user needs no extra tools.
@@ -250,6 +383,7 @@ EOF
       bin_dir=""
       case "$PM" in
         npm)  bin_dir=$(npm prefix -g 2>/dev/null)/bin ;;
+        cnpm) bin_dir=$(cnpm prefix -g 2>/dev/null)/bin ;;
         pnpm) bin_dir=$(pnpm bin -g 2>/dev/null || true) ;;
         yarn) bin_dir=$(yarn global bin 2>/dev/null || true) ;;
         bun)  bin_dir="${BUN_INSTALL:-$HOME/.bun}/bin" ;;

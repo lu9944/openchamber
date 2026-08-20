@@ -53,6 +53,15 @@ function getOrCreateInstallId(scope = 'web') {
   return installId;
 }
 
+function getSavedPackageManager() {
+  try {
+    const saved = fs.readFileSync(path.join(getOpenChamberConfigDir(), 'package-manager'), 'utf8').trim();
+    return ['npm', 'pnpm', 'cnpm', 'yarn', 'bun'].includes(saved) ? saved : null;
+  } catch {
+    return null;
+  }
+}
+
 function mapPlatform(value) {
   if (value === 'darwin') return 'macos';
   if (value === 'win32') return 'windows';
@@ -407,7 +416,7 @@ export function detectPackageManagerDetails() {
   }
 
   const forcedPm = process.env.OPENCHAMBER_PACKAGE_MANAGER?.trim();
-  if (forcedPm && ['npm', 'pnpm', 'yarn', 'bun'].includes(forcedPm)) {
+  if (forcedPm && ['npm', 'pnpm', 'cnpm', 'yarn', 'bun'].includes(forcedPm)) {
     const forcedPmCommand = resolvePackageManagerCommand(forcedPm);
     if (isCommandAvailable(forcedPmCommand)) {
       cachedDetectedPm = forcedPm;
@@ -419,6 +428,18 @@ export function detectPackageManagerDetails() {
         globalNodeModulesRoot: getGlobalNodeModulesRoots(cachedDetectedPm)[0] || null,
       };
     }
+  }
+
+  const savedPm = getSavedPackageManager();
+  if (savedPm && isCommandAvailable(resolvePackageManagerCommand(savedPm)) && packageManagerOwnsCurrentInstall(savedPm)) {
+    cachedDetectedPm = savedPm;
+    return {
+      packageManager: cachedDetectedPm,
+      reason: 'saved-install-owner',
+      packagePath: getCurrentPackagePath(),
+      packageManagerCommand: resolvePackageManagerCommand(cachedDetectedPm),
+      globalNodeModulesRoot: getGlobalNodeModulesRoots(cachedDetectedPm)[0] || null,
+    };
   }
 
   // First prefer the package manager that demonstrably owns the current install.
@@ -434,7 +455,7 @@ export function detectPackageManagerDetails() {
     };
   }
 
-  const ownershipCandidates = ['pnpm', 'yarn', 'bun', 'npm'];
+  const ownershipCandidates = ['pnpm', 'yarn', 'bun', 'cnpm', 'npm'];
   for (const candidate of ownershipCandidates) {
     if (packageManagerOwnsCurrentInstall(candidate)) {
       cachedDetectedPm = candidate;
@@ -452,6 +473,7 @@ export function detectPackageManagerDetails() {
   const userAgent = process.env.npm_config_user_agent || '';
   let hintedPm = null;
   if (userAgent.startsWith('pnpm')) hintedPm = 'pnpm';
+  else if (userAgent.startsWith('cnpm')) hintedPm = 'cnpm';
   else if (userAgent.startsWith('yarn')) hintedPm = 'yarn';
   else if (userAgent.startsWith('bun')) hintedPm = 'bun';
   else if (userAgent.startsWith('npm')) hintedPm = 'npm';
@@ -460,6 +482,7 @@ export function detectPackageManagerDetails() {
   const execPath = process.env.npm_execpath || '';
   if (!hintedPm) {
     if (execPath.includes('pnpm')) hintedPm = 'pnpm';
+    else if (execPath.includes('cnpm')) hintedPm = 'cnpm';
     else if (execPath.includes('yarn')) hintedPm = 'yarn';
     else if (execPath.includes('bun')) hintedPm = 'bun';
     else if (execPath.includes('npm')) hintedPm = 'npm';
@@ -504,6 +527,7 @@ export function detectPackageManagerDetails() {
     { name: 'pnpm', check: () => isCommandAvailable(resolvePackageManagerCommand('pnpm')) },
     { name: 'yarn', check: () => isCommandAvailable(resolvePackageManagerCommand('yarn')) },
     { name: 'bun', check: () => isCommandAvailable(resolvePackageManagerCommand('bun')) },
+    { name: 'cnpm', check: () => isCommandAvailable(resolvePackageManagerCommand('cnpm')) },
     { name: 'npm', check: () => isCommandAvailable(resolvePackageManagerCommand('npm')) },
   ];
 

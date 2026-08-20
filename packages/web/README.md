@@ -14,7 +14,15 @@ Full project overview, screenshots, and all features: [github.com/openchamber/op
 curl -fsSL https://raw.githubusercontent.com/openchamber/openchamber/main/scripts/install.sh | bash
 ```
 
-Or install manually: `bun add -g @openchamber/web` (or npm, pnpm, yarn).
+When run from an interactive terminal, the installer offers a choice among the
+package managers already available on the machine. For a non-interactive pipe,
+select one explicitly with:
+
+    curl -fsSL https://raw.githubusercontent.com/openchamber/openchamber/main/scripts/install.sh | bash -s -- --package-manager pnpm
+
+Supported choices are npm, pnpm, cnpm, yarn, and bun. The installer records the
+choice so openchamber update uses the same package manager. Or install manually
+with bun add -g @openchamber/web (or npm, pnpm, cnpm, yarn).
 
 > **Prerequisites:** [OpenCode CLI](https://opencode.ai) installed, Node.js 22+.
 
