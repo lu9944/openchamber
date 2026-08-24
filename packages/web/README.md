@@ -11,14 +11,14 @@ Full project overview, screenshots, and all features: [github.com/openchamber/op
 ## Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/openchamber/openchamber/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/lu9944/openchamber/main/scripts/install.sh | bash
 ```
 
 When run from an interactive terminal, the installer offers a choice among the
 package managers already available on the machine. For a non-interactive pipe,
 select one explicitly with:
 
-    curl -fsSL https://raw.githubusercontent.com/openchamber/openchamber/main/scripts/install.sh | bash -s -- --package-manager pnpm
+    curl -fsSL https://raw.githubusercontent.com/lu9944/openchamber/main/scripts/install.sh | bash -s -- --package-manager pnpm
 
 Supported choices are npm, pnpm, cnpm, yarn, and bun. The installer records the
 choice so openchamber update uses the same package manager. Or install manually

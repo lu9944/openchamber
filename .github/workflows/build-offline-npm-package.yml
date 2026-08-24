@@ -36,12 +36,8 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Run offline-sensitive server tests
-        run: |
-          bun run --cwd packages/web test -- \
-            server/lib/dictation/service.test.js \
-            server/lib/github/pr-status.test.js \
-            server/lib/opencode/settings-helpers.test.js
+      - name: Test web package
+        run: bun run --cwd packages/web test
 
       - name: Type-check web package
         run: bun run type-check:web
@@ -132,12 +128,44 @@ jobs:
           fi
 
           npm "${npm_args[@]}" "$package_path"
+
+          selected_prefix=$(printenv OPENCHAMBER_INSTALL_PREFIX || true)
+          if [ -n "$selected_prefix" ]; then
+            installed_bin="$selected_prefix/bin/openchamber"
+          else
+            installed_bin="$(npm prefix -g)/bin/openchamber"
+          fi
+          if [ ! -x "$installed_bin" ]; then
+            echo "npm completed, but $installed_bin is missing or not executable." >&2
+            exit 1
+          fi
+
+          installed_version=$("$installed_bin" --version)
+          echo "OpenChamber $installed_version installed at $installed_bin"
+
+          installer_home=$(printenv HOME || true)
+          if [ -n "$installer_home" ]; then
+            preference_dir="$installer_home/.config/openchamber"
+            mkdir -p "$preference_dir"
+            printf 'npm\n' > "$preference_dir/package-manager"
+          fi
+
+          if command -v openchamber >/dev/null 2>&1; then
+            resolved_bin=$(command -v openchamber)
+            if [ "$resolved_bin" != "$installed_bin" ]; then
+              echo "Your shell currently resolves openchamber to $resolved_bin"
+              echo "Run 'hash -r' after this installer exits to use $installed_bin"
+            fi
+          else
+            echo "If openchamber was previously installed with pnpm, run 'hash -r' after this installer exits."
+            echo "Make sure $(dirname "$installed_bin") is on PATH."
+          fi
           INSTALL_SCRIPT
           chmod +x artifacts/install.sh
           printf 'registry=https://registry.npmjs.org/\n' > artifacts/npmrc
           (
             cd artifacts
-            sha256sum "package/$package_name" npmrc > SHA256SUMS
+            sha256sum "package/$package_name" npmrc install.sh > SHA256SUMS
           )
 
           hostile_home="$RUNNER_TEMP/openchamber-hostile-home"
@@ -145,6 +173,10 @@ jobs:
           mkdir -p "$hostile_home"
           printf 'registry=https://offline.invalid/\n' > "$hostile_home/.npmrc"
           HOME="$hostile_home" OPENCHAMBER_INSTALL_PREFIX="$offline_prefix" bash artifacts/install.sh
+          if [ "$(cat "$hostile_home/.config/openchamber/package-manager")" != npm ]; then
+            echo "Offline installer did not record npm as the update package manager." >&2
+            exit 1
+          fi
           npm ls --all --global --prefix "$offline_prefix"
           "$offline_prefix/bin/openchamber" --help >/dev/null
 
@@ -200,6 +232,10 @@ jobs:
           Install from this extracted directory without network access:
 
             bash ./install.sh
+
+          This artifact uses npm only. The installer records npm for later
+          OpenChamber updates. If a previous pnpm installation was removed,
+          run "hash -r" after installation so the shell forgets its old path.
 
           install.sh ignores the user's npm registry configuration so the cache
           remains usable with npm mirrors configured. It verifies the package
