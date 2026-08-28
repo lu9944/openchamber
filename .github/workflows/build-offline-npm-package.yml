@@ -13,7 +13,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     env:
       OPENCHAMBER_ALLOW_SPEECH_MODEL_DOWNLOADS: 'false'
       NPM_CONFIG_AUDIT: 'false'
@@ -35,6 +35,9 @@ jobs:
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
+
+      - name: Check installer syntax
+        run: bash -n scripts/install.sh
 
       - name: Test web package
         run: bun run --cwd packages/web test
@@ -91,6 +94,7 @@ jobs:
           set -euo pipefail
 
           artifact_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+          hash -r 2>/dev/null || true
           if [ "$(uname -s)" != "Linux" ] || [ "$(uname -m)" != "x86_64" ]; then
             echo "This installer supports Linux x86_64 only." >&2
             exit 1
@@ -141,6 +145,10 @@ jobs:
           fi
 
           installed_version=$("$installed_bin" --version)
+          if [ "$installed_version" != "${{ steps.package.outputs.version }}" ]; then
+            echo "Expected OpenChamber ${{ steps.package.outputs.version }}, installed $installed_version" >&2
+            exit 1
+          fi
           echo "OpenChamber $installed_version installed at $installed_bin"
 
           installer_home=$(printenv HOME || true)

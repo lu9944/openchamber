@@ -284,6 +284,9 @@ save_package_manager_preference() {
 }
 
 main() {
+  # Forget stale command locations, especially after removing a pnpm global
+  # install before reinstalling with another package manager.
+  hash -r 2>/dev/null || true
   parse_args "$@"
   echo ""
   echo "  ╭───────────────────────────────────╮"
