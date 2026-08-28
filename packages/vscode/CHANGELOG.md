@@ -1,11 +1,47 @@
 ## [Unreleased]
 
+- **Turkish interface:** OpenChamber can now be used in Turkish (thanks to @fitzgpt).
+- **`/btw` side questions:** a btw session now answers the side question instead of carrying on with the parent's plan, and forks at the last completed turn so a reply that is still streaming is never inherited (thanks to @pocharlies).
+- The context usage readout now reports the session cost including everything its subagents spent, matching the work status panel instead of showing a lower figure (thanks to @igorvelho).
+- Chat: undoing or redoing a parent session now keeps its subagent sessions at the same point in history instead of leaving their later work behind (thanks to @alexandrereyes).
+- Chat: pending permission and question cards come back after the webview reloads or when the session is opened late, instead of the session hanging on a tool that is waiting for an answer nobody can see (thanks to @yangyaofei).
+- Chat: dismissing the agent's questions without answering and sending a new task no longer leaves the session looking frozen on the dismissed question (thanks to @bashrusakh).
+- Chat: with "Follow new content while streaming" turned off, sending a message while scrolled up now leaves the view where it is instead of jumping to the new message.
+- Chat: pressing PageUp/PageDown in the prompt box, or moving the caret through a long prompt, no longer shifts the whole panel up and hides its top edge.
+- GitHub Copilot usage now shows a single AI Credits window, matching Copilot's token-based quota, in place of the old Chat Requests and Completions windows (thanks to @jakoss).
+- Updating OpenCode no longer fails with a bare "Bad Request": the extension names the release to install, which recent OpenCode versions require, and shows OpenCode's own reason when an update is refused (thanks to @mdatsev and @yulia-ivashko).
+- A saved draft or recalled message containing Windows line endings no longer replaces the chat with a "Selection points outside of document" error, and no longer brings the error back every time you reopen that session (thanks to @mattv8 and @yulia-ivashko).
+- "Add Project" now adds the chosen folder to the workspace instead of failing with "Failed to add project" (thanks to @bashrusakh).
+- Multi-Run groups can now contain more than five models (thanks to @tomzx).
+- Chat: very large tool results are capped before rendering instead of exhausting the webview's memory and crashing it (thanks to @JSap0914).
+- Chat: copying a message now preserves the spacing between Markdown paragraphs, lists, and fenced code blocks in plain text, Markdown, and rich clipboard content (thanks to @ChangeHow).
+- Chat: question prompts now render Markdown, including links, code, and lists (thanks to @pascalandr).
+- Chat: tool cards with a file path now show a quick-open button in the header that opens the file in the editor (thanks to @robertoberto).
+- Chat: sending without a selected provider or model now explains what is missing instead of silently doing nothing (thanks to @rvaldemar).
+- Chat: `/init` remains available in slash-command autocomplete after a conversation has started (thanks to @Dawnfz-Lenfeng).
+- Chat: a diff that arrives with a truncated header no longer crashes the tool card (thanks to @pascalandr).
+- Composer: typing three backticks now leaves the caret inside the completed code fence, empty inputs keep a visible caret, and platform autocorrect behavior is preserved (thanks to @franzudev, @TTTPOB, and @IbrahimKhan12).
+- Chat: bare links next to Chinese, Japanese, or full-width punctuation no longer absorb that punctuation into the URL (thanks to @gaojunran).
+- Chat: inline code, chips, and model-picker highlights remain readable in high-contrast themes (thanks to @difagume and @bashrusakh).
+- Settings/Skills: Windows paths are now classified correctly, so disabled external skills are hidden and duplicate `.agents` and `.claude` skills are removed as intended (thanks to @Ttungx).
+- Worktrees: branch search now hides non-matching branches instead of leaving unrelated results visible (thanks to @bashrusakh).
+- Windows: closing VS Code now stops the managed OpenCode process instead of leaving it running (thanks to @a0000001).
+- The extension now reuses its OpenCode output channel across managed-server restarts instead of creating duplicate channels (thanks to @TTTPOB).
+
+## [1.21.0] - 2026-08-26
+
 - **Chat context attachments:** diff and file comments, terminal selections, and linked issues/PRs now show in the conversation as compact context cards — source header, captured content behind an expander, your comment below — instead of raw text inside the message.
-- **Chat: comment on a reply.** Select text in a chat message and choose Comment to attach that quote with your note to the next message; the selection stays highlighted while you type. Add to chat is now Add to input.
-- Diff: hovering a line shows a + button that opens a comment for the line; clicking a line or dragging across lines opens the editor for that range. The comment editor and saved-comment cards match the chat's comment style.
+- **Chat: comment on a reply.** Select text in a chat message and choose Comment to attach that quote with your note to the next message; the selection stays highlighted while you type.
+- Chat: the view no longer stays stuck on its loading screen on slow or remote connections, including code-server behind a reverse proxy (thanks to @VinciYan).
 - Composer: hovering a context chip above the input opens a stacked preview of everything attached, where comments can be edited in place or items removed before sending.
+- Chat: @ file mentions now rank files and directories together by how well they match, so the file you typed is at the top instead of below unrelated directories. Multi-word queries match in any order, and long paths keep the folder next to the file name visible.
+- Search: Ctrl/Cmd+P now matches the whole file path, not just the file name — searching a folder name finds the files inside it.
+- Search in dropdowns: searchable pickers (agents, models, providers, branches) now put the best matches first, match multi-word queries in any order, and ignore punctuation (so "gpt4o" finds "gpt-4o").
+- Permissions: cards answer to the keyboard with Alt+Enter to allow once, Alt+Shift+Enter to allow always, and Alt+Backspace to deny; the keys are printed on the buttons.
+- Keyboard: dropdown menus and pickers answer Ctrl+N/Ctrl+P for down/up, the session switcher opens focused on your current session, and shortcut labels in tooltips and menus show the binding you actually have set (thanks to @ChangeHow).
+- Chat: Cmd/Ctrl+Shift+T now cycles through every thinking level offered by the selected model instead of skipping levels after reaching the end (thanks to @nimobeeren).
 - Chat: OpenCode notices now share one style.
-- The timeline dialog now fits small windows instead of squeezing the message list to a couple of rows (thanks to @gaojunran).
+- Chat: the timeline dialog now fits small windows instead of squeezing the message list to a couple of rows (thanks to @gaojunran).
 
 ## [1.20.0] - 2026-08-23
 
@@ -40,6 +76,8 @@
 - Attachments: extracted Office and OpenDocument content is now capped and presented more compactly, preventing large documents and their images from overwhelming the message context.
 - Projects: project names now match the folder name exactly, so `.ssh` and `opencode-claude` are no longer shown as `.Ssh` and `Opencode Claude`; names you renamed yourself are kept.
 - Skills Catalog: the source is now named ClawHub instead of "ClawdHub" (thanks to @makeittech).
+- Add Project now adds the chosen folder to the workspace instead of showing a "Failed to add project" toast.
+- The model selection menu no longer shows white text on a white highlight when a high-contrast theme is active, so the hovered or selected model stays legible (thanks to @bashrusakh).
 
 ## [1.18.4] - 2026-08-14
 

@@ -7,6 +7,7 @@ import { Toaster } from '@/components/ui/sonner';
 import { Button } from '@/components/ui/button';
 import { MemoryDebugPanel } from '@/components/ui/MemoryDebugPanel';
 import { setStreamPerfEnabled } from '@/stores/utils/streamDebug';
+import { setRequestsInFlightTrackingEnabled } from '@/stores/utils/requestsInFlight';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 // useEventStream removed — replaced by SyncProvider + SyncBridge
 import { useMenuActions } from '@/hooks/useMenuActions';
@@ -19,8 +20,8 @@ import { useWebNotificationStream } from '@/hooks/useWebNotificationStream';
 import { useAgentMemorySync } from '@/hooks/useAgentMemorySync';
 import { usePwaInstallPrompt } from '@/hooks/usePwaInstallPrompt';
 import { useWindowTitle } from '@/hooks/useWindowTitle';
+import { useRootScrollLock } from '@/hooks/useRootScrollLock';
 import { useConfigStore } from '@/stores/useConfigStore';
-import { hasModifier } from '@/lib/utils';
 import { isDesktopLocalOriginActive, isDesktopShell, restartDesktopApp, invokeDesktop } from '@/lib/desktop';
 import {
   getInjectedBootOutcome,
@@ -277,6 +278,13 @@ function App({ apis }: AppProps) {
     setStreamPerfEnabled(showMemoryDebug);
     return () => {
       setStreamPerfEnabled(false);
+    };
+  }, [showMemoryDebug]);
+
+  React.useEffect(() => {
+    setRequestsInFlightTrackingEnabled(showMemoryDebug);
+    return () => {
+      setRequestsInFlightTrackingEnabled(false);
     };
   }, [showMemoryDebug]);
 
@@ -626,7 +634,6 @@ function App({ apis }: AppProps) {
       const directory = typeof detail?.directory === 'string' && detail.directory.trim().length > 0
         ? detail.directory.trim()
         : null;
-      useUIStore.getState().setActiveMainTab('chat');
       void useSessionUIStore.getState().setCurrentSession(sessionId, directory);
     };
 
@@ -675,7 +682,6 @@ function App({ apis }: AppProps) {
         ? detail.projectId.trim()
         : null;
       const hasProjectTarget = Boolean(directory || projectId);
-      useUIStore.getState().setActiveMainTab('chat');
       useUIStore.getState().setSessionSwitcherOpen(false);
       useSessionUIStore.getState().openNewSessionDraft({
         target: hasProjectTarget ? 'project' : 'chat',
@@ -712,6 +718,8 @@ function App({ apis }: AppProps) {
 
   useWindowTitle();
 
+  useRootScrollLock();
+
   useRouter();
 
   const handleToggleMemoryDebug = React.useCallback(() => {
@@ -725,25 +733,12 @@ function App({ apis }: AppProps) {
 
   useSessionStatusBootstrap({ enabled: embeddedBackgroundWorkEnabled });
 
+  // Palette-only action: the memory debug panel has no keyboard shortcut.
   React.useEffect(() => {
-    if (embeddedSessionChat) {
-      return;
-    }
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const isDebugShortcut = hasModifier(e)
-        && e.shiftKey
-        && !e.altKey
-        && (e.code === 'KeyD' || e.key.toLowerCase() === 'd');
-
-      if (isDebugShortcut) {
-        e.preventDefault();
-        setShowMemoryDebug(prev => !prev);
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown, true);
-    return () => window.removeEventListener('keydown', handleKeyDown, true);
+    if (embeddedSessionChat) return;
+    const handleToggle = () => setShowMemoryDebug((previous) => !previous);
+    window.addEventListener('openchamber:memory-debug-toggle', handleToggle);
+    return () => window.removeEventListener('openchamber:memory-debug-toggle', handleToggle);
   }, [embeddedSessionChat]);
 
   React.useEffect(() => {

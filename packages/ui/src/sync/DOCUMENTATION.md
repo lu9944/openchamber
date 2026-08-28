@@ -18,7 +18,8 @@ There are **two distinct session data scopes** in the UI:
    - Holds:
      - global active sessions
      - global archived sessions
-     - active sessions indexed by directory
+    - active and archived entities indexed by ID
+    - active root, parent/child, and directory indexes
 
 These two scopes are intentionally different, but they are no longer equal peers for live UI truth.
 
@@ -43,11 +44,11 @@ So:
 |---|---|---|
 | `ChildStoreManager` and child directory stores | Priority-scheduled directory bootstrap plus `session`, `message`, `part`, `permission`, `question`, etc. | One runtime and one store per directory |
 | `SessionMessageLoader` | Initial message loading, pagination, prefetch, retries, load state, and optimistic reconciliation | One runtime, directory, and session ID |
-| `global-session-status.ts` | Incremental non-idle session status index reconciled from events and authoritative directory snapshots | All known directories in the active runtime |
+| `global-session-status.ts` | Incremental non-idle session status index reconciled from events and authoritative directory snapshots, plus a reference-stable active-ID membership collection maintained from the same mutations | All known directories in the active runtime |
 | `session-ordering.ts` | Ephemeral lifecycle rank used by every user-visible session list | All known sessions in the active runtime |
 | `session-activity-timing.ts` | Elapsed time of the running turn and of the turn that just finished, plus the persisted starts that survive a reload | All known sessions in the active runtime |
 | `session-ui-store.ts` | Session selection, draft lifecycle, one-shot draft-materialization transition identity, abort prompts, worktree metadata, SDK-facing action entrypoints | App UI state |
-| `useGlobalSessionsStore.ts` | Global active sessions, global archived sessions, `sessionsByDirectory` | All opened project/worktree session lists |
+| `useGlobalSessionsStore.ts` | Global active/archived entities plus root, parent/child, and directory indexes | All opened project/worktree session lists |
 | `viewport-store.ts` | Scroll anchors, session memory, loading indicators | App UI state |
 | `attachment-files.ts` | Attachment picker allowlists, MIME/content validation, structured-text sanitization, and HEIC conversion | Local chat attachments across shared UI runtimes |
 | `document-attachments.ts` | Bounded Office/OpenDocument extraction, document text serialization, embedded-image extraction, and positional citations | DOCX, PPTX, XLSX, ODT, ODP, and ODS chat attachments |
@@ -62,6 +63,10 @@ Office and OpenDocument packages are metadata-validated before asynchronous extr
 The composer compares normalized attachment MIME types with the selected model's declared input modalities. It warns when a newly attached file or an existing attachment after a model change requires an unsupported modality, but does not block sending. Missing modality metadata remains unknown and does not produce a warning.
 
 ## Session list rules
+
+### Layout-mounted session-list lifecycle
+
+`MainLayout` and `VSCodeLayout` each call `useSessionListSync({ isVSCode })` directly and unconditionally, outside Sidebar visibility, responsive, editor, settings, and compact-view branches. The hook selects the real topology inputs, publishes complete directory bootstrap demand through `ChildStoreManager`, refreshes topology additions (including all VS Code directories on its first mount), coalesces OpenChamber control events for 500ms, and supplies a memoized complete global active+archived input to authoritative cleanup. The root-level global poller owns the initial global refresh. MainLayout includes available worktrees; VS Code intentionally excludes them. Sidebar-local `session-created` worktree discovery is separate and full-app-only.
 
 ### Directory bootstrap scheduling
 
@@ -211,7 +216,7 @@ The profiler also emits a user-timing mark when pending global-session recency i
 
 Streaming assistant and reasoning text is throttled once before reaching the markdown renderer. The renderer incrementally reconciles changed markdown blocks but does not add a second character-pacing timer, which would multiply parse/morph work while catching up on large streamed chunks.
 
-The event pipeline delivers each ordered per-directory flush as one reducer batch. Events retain their individual global indexes, notifications, cleanup, routing, materialization, and debug side effects, while their directory mutations accumulate in order and publish one store transaction per touched directory. Each top-level state slice is cloned lazily at most once in that batch; no-op events do not change references.
+The event pipeline delivers each ordered per-directory flush as one reducer batch. Events retain their individual notifications, cleanup, routing, materialization, and debug side effects, while directory mutations accumulate in order and publish one store transaction per touched directory. Global session mutations and live status, ordering, and timing transitions also accumulate in event order and each owner publishes at most once for the flush. Each top-level state slice is cloned lazily at most once in that batch; no-op events do not change references.
 
 Streaming lifecycle derivation has two paths. Directory attach, switch, bootstrap, and reconnect may perform a full reconciliation. Normal store publications reconcile only sessions whose `session_status` or `message` bucket changed; part-only events update the affected streaming message heartbeat directly and must not rescan all busy sessions.
 
@@ -263,6 +268,8 @@ Rules:
 6. After session creation, the directory returned by the server is authoritative over the requested draft directory. The server may canonicalize a worktree path, and the first prompt must use the same directory identity as the created session.
 7. Regular new-chat drafts that inherit the persisted current/last directory must not create a session against a confirmed-missing path. Fall back to the active project only when OpenCode reports the directory missing; keep explicit worktree targets, in-flight worktree creation, and unknown/offline probes unchanged, and do not persist the fallback until session creation succeeds. A concurrent draft rewrite to that same active-project fallback must not abort session creation.
 8. A prompt send that fails **after** the request left the client is ambiguous, never a definite failure: the server may already be answering it. Transports tag those errors (`markAmbiguousTransportFailure` in `@/lib/relay/transport-error`; the relay tunnel tags every stream that dies with a request in flight), and `isAmbiguousSendFailure` reads the tag before falling back to status/text heuristics. An ambiguous failure waits for the connection to return, refetches recent messages, and confirms the optimistic message in place instead of rolling it back — rolling it back lets the message queue re-send a prompt the engine is already running, producing two independent AI responses for one user message.
+9. `SessionLiveActivity` has three answers and `unknown` is never `idle`. `getSessionLiveActivity` reports `active` when any child store or the global session-status index holds a non-idle status, `idle` only when a child store actually covers the session's directory, and `unknown` otherwise — child stores are evicted for background directories, and the global index keeps only non-idle entries, so absence of a status is not proof of idleness. Callers that gate a destructive action (worktree moves) must refuse on `unknown`.
+10. Revert and unrevert cascade through known descendant sessions before mutating the parent. Revert uses the first descendant user message at or after the parent's target timestamp, including equal timestamps because message IDs do not define chronology. A descendant failure is logged and does not block its siblings or the parent. The parent runs last so its shared-directory file snapshot remains authoritative. A busy descendant is aborted before it is reverted, like the parent, so nothing keeps writing past the revert boundary. Redo clears the revert marker on every descendant, including markers the user set on a subagent independently of the parent undo.
 
 Examples of global-store updates performed in `session-actions.ts`:
 
