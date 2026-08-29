@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: offline-npm-${{ github.ref }}
@@ -258,3 +258,41 @@ jobs:
           path: artifacts
           if-no-files-found: error
           retention-days: 30
+
+      - name: Prepare GitHub Release files
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          release_name="openchamber-${{ steps.package.outputs.version }}-${{ steps.package.outputs.revision }}-npm-offline-linux-x64"
+          release_tag="offline-v${{ steps.package.outputs.version }}-${{ steps.package.outputs.revision }}"
+          mkdir -p release-assets
+          tar --create --gzip --file "release-assets/$release_name.tar.gz" --directory artifacts .
+          (
+            cd release-assets
+            sha256sum "$release_name.tar.gz" > "$release_name.tar.gz.sha256"
+          )
+          cat > release-assets/release-notes.md <<EOF
+          Linux x64 offline npm installation package for OpenChamber ${{ steps.package.outputs.version }}.
+
+          The workflow tested the package with Node.js 22, installed it from an isolated npm cache with network access disabled, checked its dependency tree and CLI, then started the server and requested its health and homepage endpoints.
+
+          Extract the archive and run `bash ./install.sh`. Speech models are not included. Providers, model catalogs, updates, relay services, and other network-backed features still need network access.
+
+          Source commit: `$GITHUB_SHA`
+          EOF
+          printf "name=%s\\n" "$release_name" >> "$GITHUB_OUTPUT"
+          printf "tag=%s\\n" "$release_tag" >> "$GITHUB_OUTPUT"
+
+      - name: Publish offline package to GitHub Release
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
+        with:
+          tag_name: ${{ steps.release.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: OpenChamber ${{ steps.package.outputs.version }} offline npm package
+          body_path: release-assets/release-notes.md
+          fail_on_unmatched_files: true
+          files: |
+            release-assets/${{ steps.release.outputs.name }}.tar.gz
+            release-assets/${{ steps.release.outputs.name }}.tar.gz.sha256
