@@ -9,6 +9,7 @@ import {
   nodeHasPinnedMembershipChange,
   selectFolderRootNodes,
   selectQuestionBadgeSessionScopes,
+  selectRowBadgeVisibilityClass,
 } from './sessionNodeItemUtils';
 import type { SessionNode } from '../types';
 
@@ -163,6 +164,44 @@ describe('selectFolderRootNodes', () => {
     };
 
     expect(selectFolderRootNodes(['missing-root', 'child'], new Map([['child', child]]))).toEqual([child]);
+  });
+});
+
+describe('selectRowBadgeVisibilityClass', () => {
+  const hideOnHoverClass = 'group-hover:opacity-0 group-focus-within:opacity-0';
+
+  test('defers to the caller hover rule so the badge fades with the date label (#2284)', () => {
+    const className = selectRowBadgeVisibilityClass({
+      actionsAlwaysVisible: false,
+      menuOpen: false,
+      hideOnHoverClass,
+    });
+
+    expect(className).toContain(hideOnHoverClass);
+  });
+
+  test('hides the badge unconditionally while the row menu keeps the actions visible without hover', () => {
+    const className = selectRowBadgeVisibilityClass({
+      actionsAlwaysVisible: false,
+      menuOpen: true,
+      hideOnHoverClass,
+    });
+
+    expect(className).not.toBe('');
+    expect(className).not.toContain(hideOnHoverClass);
+  });
+
+  test('keeps the badge always visible when actions have reserved permanent padding', () => {
+    expect(selectRowBadgeVisibilityClass({
+      actionsAlwaysVisible: true,
+      menuOpen: false,
+      hideOnHoverClass,
+    })).toBe('');
+    expect(selectRowBadgeVisibilityClass({
+      actionsAlwaysVisible: true,
+      menuOpen: true,
+      hideOnHoverClass,
+    })).toBe('');
   });
 });
 

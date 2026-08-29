@@ -4,10 +4,12 @@ import { MessageFreshnessDetector } from '@/lib/messageFreshness';
 import { createScrollSpy } from '@/components/chat/lib/scroll/scrollSpy';
 import { useViewportStore } from '@/sync/viewport-store';
 import { useUIStore } from '@/stores/useUIStore';
+import type { TimelineRevealGate } from '@/components/chat/timelineRevealGate';
 import {
     CHAT_LIST_ANCHOR_OFFSET,
     getAnchoredTurnMetrics,
     getRowBottom,
+    resolveRealContentEndOffset,
     resolveTimelineIsAtEnd,
     TIMELINE_FOLLOW_REARM_THRESHOLD_PX,
     type TimelineListMeasurementState,
@@ -75,8 +77,19 @@ interface UseChatTimelineScrollOptions {
     // Id of the newest user message in the rendered timeline. When a send has
     // armed the anchor, the next new id here becomes the anchored row.
     lastUserMessageId: string | null;
+    // True while the session is producing output. Follow corrections glide
+    // only then. Outside a live stream — entering a session, a tab becoming
+    // active, rows re-measuring after a switch — the viewport must land on
+    // the end instantly: an animated catch-up scrolls visibly through the
+    // conversation and gets cut short by the next measurement.
+    sessionIsWorking: boolean;
+    // Reveal gate of the session being opened. Held until the viewport is
+    // pinned to the end, so the session is never shown scrolled to the top.
+    revealGate?: TimelineRevealGate | null;
     onActiveTurnChange?: (turnId: string | null) => void;
 }
+
+
 
 export interface UseChatTimelineScrollResult {
     scrollRef: React.RefObject<HTMLDivElement | null>;
@@ -121,8 +134,12 @@ export const useChatTimelineScroll = ({
     sessionMessageCount,
     composerOverlayHeight,
     lastUserMessageId,
+    sessionIsWorking,
+    revealGate = null,
     onActiveTurnChange,
 }: UseChatTimelineScrollOptions): UseChatTimelineScrollResult => {
+    const sessionIsWorkingRef = React.useRef(sessionIsWorking);
+    sessionIsWorkingRef.current = sessionIsWorking;
     const scrollRef = React.useRef<HTMLDivElement | null>(null);
     const listRef = React.useRef<TimelineListHandle | null>(null);
 
@@ -588,7 +605,25 @@ export const useChatTimelineScroll = ({
                 quietTimer = null;
                 widthResizingRef.current = false;
                 if (isAtEndRef.current && pendingAnchorRef.current === null) {
-                    void listRef.current?.scrollToEnd({ animated: false });
+                    // Not scrollToEnd: the list's end offset comes from the
+                    // total content length, which still carries pre-wrap row
+                    // sizes (and any reserved anchored end space) right after a
+                    // width change. Landing there parks the last row near the
+                    // top of the viewport with a blank tail below it. Target
+                    // the measured bottom of the last real row instead.
+                    const list = listRef.current;
+                    const state = list?.getState();
+                    const offset = state
+                        ? resolveRealContentEndOffset({
+                            state,
+                            composerOverlayHeight: composerOverlayHeightRef.current,
+                        })
+                        : null;
+                    if (list && offset !== null) {
+                        void list.scrollToOffset({ offset, animated: false });
+                    } else {
+                        void list?.scrollToEnd({ animated: false });
+                    }
                 }
             }, 350);
         });
@@ -614,6 +649,10 @@ export const useChatTimelineScroll = ({
         const end = node.scrollHeight - node.clientHeight;
         const distance = end - node.scrollTop;
         if (distance <= 1) return;
+        if (!sessionIsWorkingRef.current) {
+            node.scrollTop = end;
+            return;
+        }
         if (distance > node.clientHeight) {
             node.scrollTop = end - node.clientHeight;
         }
@@ -637,15 +676,15 @@ export const useChatTimelineScroll = ({
                 const lastIndex = state.data.length - 1;
                 const lastBottom = lastIndex >= 0 ? getRowBottom(state, lastIndex) : null;
                 if (lastBottom !== null && state.scroll > lastBottom) {
-                    const visibleLength = Math.max(
-                        0,
-                        state.scrollLength - composerOverlayHeightRef.current - CHAT_LIST_ANCHOR_OFFSET,
-                    );
-                    void list.scrollToOffset({
-                        offset: Math.max(0, lastBottom - visibleLength),
-                        animated: false,
+                    const offset = resolveRealContentEndOffset({
+                        state,
+                        composerOverlayHeight: composerOverlayHeightRef.current,
+                        extraInset: CHAT_LIST_ANCHOR_OFFSET,
                     });
-                    return;
+                    if (offset !== null) {
+                        void list.scrollToOffset({ offset, animated: false });
+                        return;
+                    }
                 }
             }
         }
@@ -844,6 +883,61 @@ export const useChatTimelineScroll = ({
             scrollNode.removeEventListener('scroll', handleScroll);
         };
     }, [queueSave, realContentOverflowsViewport, scrollNode]);
+
+    // ── entry pin ───────────────────────────────────────────────────────────
+    // An opened session is shown once, already at its end: the reveal gate is
+    // held until the viewport sits on the end, and the pin is one instant
+    // write. The list lays its rows out before the first frame, so this
+    // resolves within a frame; the gate's own cap bounds the wait.
+    React.useLayoutEffect(() => {
+        if (!currentSessionKey || !scrollNode) return;
+        const releaseReveal = revealGate?.hold() ?? null;
+        let frame: number | null = null;
+        const settle = () => {
+            frame = null;
+            if (!userOwnsScrollRef.current && modeRef.current === 'following-end') {
+                const end = scrollNode.scrollHeight - scrollNode.clientHeight;
+                if (end - scrollNode.scrollTop > 1) scrollNode.scrollTop = end;
+            }
+            releaseReveal?.();
+        };
+        frame = requestAnimationFrame(settle);
+        return () => {
+            if (frame !== null) cancelAnimationFrame(frame);
+            releaseReveal?.();
+        };
+    }, [currentSessionKey, revealGate, scrollNode]);
+
+    // ── pinned end ──────────────────────────────────────────────────────────
+    // "At the end" is an invariant, not a one-time scroll: while the reader
+    // sits on the end of a session that is not producing output, any growth
+    // of the content (a footer that decides to render, a row re-measured)
+    // keeps the end in view with one instant write. Output growth belongs to
+    // followEnd, which glides.
+    React.useEffect(() => {
+        if (!scrollNode || typeof MutationObserver === 'undefined') return;
+        const content = scrollNode.firstElementChild;
+        if (!content) return;
+        const pin = () => {
+            if (sessionIsWorkingRef.current) return;
+            if (userOwnsScrollRef.current || !isAtEndRef.current || modeRef.current !== 'following-end') return;
+            const end = scrollNode.scrollHeight - scrollNode.clientHeight;
+            if (end - scrollNode.scrollTop > 1) scrollNode.scrollTop = end;
+        };
+        // A MutationObserver runs as a microtask right after the list writes
+        // its layout (row positions, container height), before the frame is
+        // painted, so the pin lands in the same frame as the growth. A
+        // ResizeObserver would only see the container a rendering step later
+        // and let one frame paint with the end out of view.
+        const mutations = new MutationObserver(pin);
+        mutations.observe(content, { childList: true, subtree: true, attributes: true, attributeFilter: ['style'] });
+        const resizes = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(pin);
+        resizes?.observe(content);
+        return () => {
+            mutations.disconnect();
+            resizes?.disconnect();
+        };
+    }, [scrollNode]);
 
     // ── session lifecycle ───────────────────────────────────────────────────
     const lastSessionKeyRef = React.useRef<string | null>(null);
