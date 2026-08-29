@@ -106,6 +106,7 @@ process violation.
 | Reviewing a single pull request or drafting a PR verdict/close/review comment | `pr-review` |
 | Triaging, cleaning up, or batch-processing the open PR queue | `triage-prs` |
 | Triaging, cleaning up, or batch-processing the issue backlog | `triage-issues` |
+| Syncing upstream or building, verifying, publishing, downloading, or troubleshooting the Linux x64 offline npm installer through GitHub Actions and GitHub Releases | `openchamber-offline-release` |
 
 Pure code-reading or explanation does not require implementation skills unless needed to interpret a specialized subsystem.
 
